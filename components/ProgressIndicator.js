@@ -1,10 +1,10 @@
 import React from 'react';
 
-const ProgressIndicator = ({ phase, conversationLength }) => {
+const ProgressIndicator = ({ phase, count }) => {
   return (
-    <div style={{ marginBottom: '10px' }}>
-      <p>Phase: {phase === 'interview' ? 'Interview in Progress' : 'Interview Completed'}</p>
-      <p>Number of exchanges: {conversationLength}</p>
+    <div className="mb-2 text-sm text-gray-700">
+      <p><strong>Phase:</strong> {phase === 'interview' ? 'Interview in Progress' : 'Interview Completed'}</p>
+      <p><strong>Number of Exchanges:</strong> {count}</p>
     </div>
   );
 };
