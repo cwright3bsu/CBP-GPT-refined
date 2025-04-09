@@ -1,51 +1,38 @@
-import axios from 'axios';
-import NodeCache from 'node-cache';
 
-const cache = new NodeCache({ stdTTL: 300 });
+import { Configuration, OpenAIApi } from "openai";
+
+const configuration = new Configuration({
+  apiKey: process.env.OPENAI_API_KEY
+});
+
+const openai = new OpenAIApi(configuration);
 
 export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
+  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   const { conversation } = req.body;
-  const prompt = generatePrompt(conversation);
+  const systemPrompt = \`
+You are a traveler entering the United States. You are being interviewed by a student customs officer.
+Answer naturally and include feedback on the effectiveness of each question asked by the officer.
 
-  const cachedResponse = cache.get(prompt);
-  if (cachedResponse) {
-    return res.status(200).json({ response: cachedResponse });
-  }
+Examples:
+Officer: "Do you have any fruits or vegetables?"
+Traveler: "Yes, I brought some mangoes. (Feedback: Good specificity about agricultural items.)"
+
+Officer: "Where are you staying?"
+Traveler: "With friends in Brooklyn. (Feedback: Consider asking for exact address or duration of stay.)"\`;
+
+  const messages = [{ role: "system", content: systemPrompt }, ...conversation];
 
   try {
-    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+    const completion = await openai.createChatCompletion({
       model: "gpt-3.5-turbo",
-      messages: [
-         { role: "system", content: "You are a CBP interview simulator. Ask questions, identify red flags, and provide a final score with recommendations." },
-         { role: "user", content: prompt }
-      ],
-      temperature: 0.5,
-      stream: false
-    }, {
-      headers: {
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
-        "Content-Type": "application/json"
-      }
+      messages,
+      temperature: 0.7
     });
-
-    const gptResponse = response.data.choices[0].message.content;
-    cache.set(prompt, gptResponse);
-    res.status(200).json({ response: gptResponse });
+    const reply = completion.data.choices[0].message;
+    res.status(200).json({ reply });
   } catch (error) {
-    console.error("Error calling GPT API", error);
-    res.status(500).json({ error: 'Failed to process interview' });
+    console.error("OpenAI API error:", error);
+    res.status(500).json({ error: "Something went wrong calling the OpenAI API." });
   }
-}
-
-function generatePrompt(conversation) {
-  let prompt = "You are conducting a simulated CBP interview. Use the following conversation:\n";
-  conversation.forEach((msg) => {
-    prompt += `${msg.role}: ${msg.content}\n`;
-  });
-  prompt += "\nNow, based on this conversation, ask the next relevant question and, if applicable, identify any red flags that need clarification.";
-  return prompt;
 }
