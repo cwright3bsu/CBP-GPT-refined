@@ -1,38 +1,67 @@
+import axios from 'axios';
+import NodeCache from 'node-cache';
 
-import { Configuration, OpenAIApi } from "openai";
+const cache = new NodeCache({ stdTTL: 300 }); // cache responses for 5 minutes
 
-const configuration = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY
-});
+const systemPrompt = `
+You are a traveler entering the United States. A Customs and Border Protection (CBP) officer is interviewing you.
 
-const openai = new OpenAIApi(configuration);
+Respond naturally and realistically. You may have something to hide (e.g., undeclared goods, expired visa, agricultural products, cash), but only admit these if asked directly.
 
-export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
-  const { conversation } = req.body;
-  const systemPrompt = \`
-You are a traveler entering the United States. You are being interviewed by a student customs officer.
-Answer naturally and include feedback on the effectiveness of each question asked by the officer.
+At the end of each response, include private feedback (in parentheses) about how effective the officer’s question was.
 
 Examples:
-Officer: "Do you have any fruits or vegetables?"
-Traveler: "Yes, I brought some mangoes. (Feedback: Good specificity about agricultural items.)"
+- "I'm here on vacation. (Feedback: Good opener. Asking purpose of travel is important.)"
+- "Yes, I brought some fruits... (Feedback: Asking about what I packed was a smart follow-up.)"
+`;
 
-Officer: "Where are you staying?"
-Traveler: "With friends in Brooklyn. (Feedback: Consider asking for exact address or duration of stay.)"\`;
+function buildConversationContext(conversationHistory, newUserMessage) {
+  // Add new user message to the history
+  const updatedHistory = [...conversationHistory, { role: 'user', content: newUserMessage }];
+  return [
+    { role: 'system', content: systemPrompt },
+    ...updatedHistory
+  ];
+}
 
-  const messages = [{ role: "system", content: systemPrompt }, ...conversation];
+export default async function handler(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const { conversation, newMessage } = req.body;
+
+  if (!newMessage || typeof newMessage !== 'string') {
+    return res.status(400).json({ error: 'Invalid input message.' });
+  }
+
+  const messages = buildConversationContext(conversation, newMessage);
+  const cacheKey = JSON.stringify(messages);
+
+  const cachedResponse = cache.get(cacheKey);
+  if (cachedResponse) {
+    return res.status(200).json({ reply: cachedResponse });
+  }
 
   try {
-    const completion = await openai.createChatCompletion({
-      model: "gpt-3.5-turbo",
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', {
+      model: 'gpt-3.5-turbo',
       messages,
-      temperature: 0.7
+      temperature: 0.7,
+      stream: false
+    }, {
+      headers: {
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json'
+      }
     });
-    const reply = completion.data.choices[0].message;
-    res.status(200).json({ reply });
+
+    const reply = response.data.choices[0].message.content;
+    cache.set(cacheKey, reply);
+    return res.status(200).json({ reply });
+
   } catch (error) {
-    console.error("OpenAI API error:", error);
-    res.status(500).json({ error: "Something went wrong calling the OpenAI API." });
+    console.error('OpenAI API Error:', error.response?.data || error.message);
+    return res.status(500).json({ error: 'Something went wrong with the AI response.' });
   }
 }
