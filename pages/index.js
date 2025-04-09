@@ -1,12 +1,10 @@
-
 import React from 'react';
-import Interview from '../components/Interview';
+import InterviewComponent from '../components/InterviewComponent';
 
 export default function Home() {
   return (
-    <main style={{ padding: 20 }}>
-      <h1>CBP-GPT Interview Simulation</h1>
-      <Interview />
-    </main>
+    <div>
+      <InterviewComponent />
+    </div>
   );
 }
